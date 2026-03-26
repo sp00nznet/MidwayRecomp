@@ -151,8 +151,10 @@ bool analyze_instruction(const rabbitizer::InstructionCpu& instr, const N64Recom
                 return false;
             }
             if (((int16_t)imm) < 0) {
-                fmt::print(stderr, "Negative offset for sw to stack: {}\n", (int16_t)imm);
-                return false;
+                // Negative sp offsets occur in exception handlers (e.g. MIPS IV R5000)
+                // that save all registers below the current stack pointer.
+                // Skip analysis for these stores but don't fail.
+                break;
             }
             size_t stack_offset = imm / 4;
             if (stack_offset >= stack_states.size()) {
@@ -171,8 +173,9 @@ bool analyze_instruction(const rabbitizer::InstructionCpu& instr, const N64Recom
                 return false;
             }
             if (((int16_t)imm) < 0) {
-                fmt::print(stderr, "Negative offset for lw from stack: {}\n", (int16_t)imm);
-                return false;
+                // Negative sp offsets occur in exception handlers.
+                // Skip analysis for these loads but don't fail.
+                break;
             }
             size_t stack_offset = imm / 4;
             if (stack_offset >= stack_states.size()) {
@@ -289,7 +292,8 @@ bool N64Recomp::analyze_function(const N64Recomp::Context& context, const N64Rec
             JumpTable& cur_jtbl = stats.jump_tables[i];
 
             if (cur_jtbl.got_offset.has_value()) {
-                uint32_t got_word = byteswap(*reinterpret_cast<const uint32_t*>(&context.rom[got_rom_addr + cur_jtbl.got_offset.value()]));
+                uint32_t got_word_raw = *reinterpret_cast<const uint32_t*>(&context.rom[got_rom_addr + cur_jtbl.got_offset.value()]);
+                uint32_t got_word = context.little_endian ? got_word_raw : byteswap(got_word_raw);
 
                 cur_jtbl.vram += (section->ram_addr + got_word);
             }
@@ -322,7 +326,8 @@ bool N64Recomp::analyze_function(const N64Recomp::Context& context, const N64Rec
             // Retrieve the current entry of the jump table
             // TODO same as above
             uint32_t rom_addr = vram + func.rom - func.vram;
-            uint32_t jtbl_word = byteswap(*reinterpret_cast<const uint32_t*>(&context.rom[rom_addr]));
+            uint32_t jtbl_word_raw = *reinterpret_cast<const uint32_t*>(&context.rom[rom_addr]);
+            uint32_t jtbl_word = context.little_endian ? jtbl_word_raw : byteswap(jtbl_word_raw);
 
             if (cur_jtbl.got_offset.has_value() && got_ram_addr.has_value()) {
                 // Position independent jump tables have values that are offsets from the GOT,

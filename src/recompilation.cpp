@@ -572,6 +572,25 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
         generator.emit_do_break(instr_vram);
         break;
 
+    // MIPS IV conditional moves
+    case InstrId::cpu_movn:
+        print_indent();
+        if (rd != 0) {
+            fmt::print(output_file, "if (ctx->r{} != 0) ctx->r{} = ctx->r{};\n", rt, rd, rs);
+        }
+        break;
+    case InstrId::cpu_movz:
+        print_indent();
+        if (rd != 0) {
+            fmt::print(output_file, "if (ctx->r{} == 0) ctx->r{} = ctx->r{};\n", rt, rd, rs);
+        }
+        break;
+
+    // MIPS IV prefetch (NOP on recompiled targets)
+    case InstrId::cpu_pref:
+        fmt::print(output_file, "\n");
+        break;
+
     // Cop1 rounding mode
     case InstrId::cpu_ctc1:
         if (cop1_cs != 31) {
@@ -590,7 +609,103 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
         generator.emit_cop1_cs_read(rt);
         break;
     default:
-        handled = false;
+        // Check for MIPS IV COP1X instructions (opcode 0x13) that rabbitizer doesn't decode
+        {
+            uint32_t raw = instr.getRaw();
+            uint32_t opcode = (raw >> 26) & 0x3F;
+            if (opcode == 0x13) {
+                // COP1X: indexed FP loads/stores and FP multiply-add family
+                uint32_t cop1x_funct = raw & 0x3F;
+                int cop1x_fr = (raw >> 21) & 0x1F; // base register (also fr for madd)
+                int cop1x_ft_idx = (raw >> 16) & 0x1F; // index register (also ft)
+                int cop1x_fs_idx = (raw >> 11) & 0x1F; // fs
+                int cop1x_fd_idx = (raw >> 6) & 0x1F;  // fd
+                // For MADD/MSUB: fd = bits[10:6], fs = bits[15:11], ft = bits[20:16], fr = bits[25:21]
+                // The actual encoding for COP1X multiply-add:
+                //   madd.s: funct=0x20, fmt=0x10 (single)
+                //   madd.d: funct=0x21, fmt=0x11 (double)
+                //   msub.s: funct=0x28
+                //   msub.d: funct=0x29
+                //   nmadd.s: funct=0x30
+                //   nmadd.d: funct=0x31
+                //   nmsub.s: funct=0x38
+                //   nmsub.d: funct=0x39
+                //   lwxc1: funct=0x00
+                //   ldxc1: funct=0x01
+                //   swxc1: funct=0x08
+                //   sdxc1: funct=0x09
+
+                print_indent();
+                switch (cop1x_funct) {
+                case 0x00: // LWXC1 fd, index(base)
+                    fmt::print(output_file, "ctx->f{}.u32l = MEM_W({}, ctx->r{} + ctx->r{});\n",
+                        cop1x_fd_idx, cop1x_fd_idx, cop1x_fr, cop1x_ft_idx);
+                    handled = true;
+                    break;
+                case 0x01: // LDXC1 fd, index(base)
+                    fmt::print(output_file, "ctx->f{}.u64 = LD({}, ctx->r{} + ctx->r{});\n",
+                        cop1x_fd_idx, cop1x_fd_idx, cop1x_fr, cop1x_ft_idx);
+                    handled = true;
+                    break;
+                case 0x08: // SWXC1 fs, index(base)
+                    fmt::print(output_file, "MEM_W({}, ctx->r{} + ctx->r{}) = ctx->f{}.u32l;\n",
+                        0, cop1x_fr, cop1x_ft_idx, cop1x_fs_idx);
+                    handled = true;
+                    break;
+                case 0x09: // SDXC1 fs, index(base)
+                    fmt::print(output_file, "SD(ctx->f{}.u64, {}, ctx->r{} + ctx->r{});\n",
+                        cop1x_fs_idx, 0, cop1x_fr, cop1x_ft_idx);
+                    handled = true;
+                    break;
+                case 0x20: // MADD.S fd, fr, fs, ft  =>  fd = (fs * ft) + fr
+                    fmt::print(output_file, "ctx->f{}.fl = ctx->f{}.fl * ctx->f{}.fl + ctx->f{}.fl;\n",
+                        cop1x_fd_idx, cop1x_fs_idx, cop1x_ft_idx, cop1x_fr);
+                    handled = true;
+                    break;
+                case 0x21: // MADD.D fd, fr, fs, ft  =>  fd = (fs * ft) + fr
+                    fmt::print(output_file, "ctx->f{}.d = ctx->f{}.d * ctx->f{}.d + ctx->f{}.d;\n",
+                        cop1x_fd_idx, cop1x_fs_idx, cop1x_ft_idx, cop1x_fr);
+                    handled = true;
+                    break;
+                case 0x28: // MSUB.S fd, fr, fs, ft  =>  fd = (fs * ft) - fr
+                    fmt::print(output_file, "ctx->f{}.fl = ctx->f{}.fl * ctx->f{}.fl - ctx->f{}.fl;\n",
+                        cop1x_fd_idx, cop1x_fs_idx, cop1x_ft_idx, cop1x_fr);
+                    handled = true;
+                    break;
+                case 0x29: // MSUB.D fd, fr, fs, ft  =>  fd = (fs * ft) - fr
+                    fmt::print(output_file, "ctx->f{}.d = ctx->f{}.d * ctx->f{}.d - ctx->f{}.d;\n",
+                        cop1x_fd_idx, cop1x_fs_idx, cop1x_ft_idx, cop1x_fr);
+                    handled = true;
+                    break;
+                case 0x30: // NMADD.S fd, fr, fs, ft  =>  fd = -((fs * ft) + fr)
+                    fmt::print(output_file, "ctx->f{}.fl = -(ctx->f{}.fl * ctx->f{}.fl + ctx->f{}.fl);\n",
+                        cop1x_fd_idx, cop1x_fs_idx, cop1x_ft_idx, cop1x_fr);
+                    handled = true;
+                    break;
+                case 0x31: // NMADD.D fd, fr, fs, ft  =>  fd = -((fs * ft) + fr)
+                    fmt::print(output_file, "ctx->f{}.d = -(ctx->f{}.d * ctx->f{}.d + ctx->f{}.d);\n",
+                        cop1x_fd_idx, cop1x_fs_idx, cop1x_ft_idx, cop1x_fr);
+                    handled = true;
+                    break;
+                case 0x38: // NMSUB.S fd, fr, fs, ft  =>  fd = -((fs * ft) - fr)
+                    fmt::print(output_file, "ctx->f{}.fl = -(ctx->f{}.fl * ctx->f{}.fl - ctx->f{}.fl);\n",
+                        cop1x_fd_idx, cop1x_fs_idx, cop1x_ft_idx, cop1x_fr);
+                    handled = true;
+                    break;
+                case 0x39: // NMSUB.D fd, fr, fs, ft  =>  fd = -((fs * ft) - fr)
+                    fmt::print(output_file, "ctx->f{}.d = -(ctx->f{}.d * ctx->f{}.d - ctx->f{}.d);\n",
+                        cop1x_fd_idx, cop1x_fs_idx, cop1x_ft_idx, cop1x_fr);
+                    handled = true;
+                    break;
+                default:
+                    fmt::print(stderr, "Unhandled COP1X instruction: funct=0x{:02X} at 0x{:08X}\n", cop1x_funct, instr_vram);
+                    handled = false;
+                    break;
+                }
+            } else {
+                handled = false;
+            }
+        }
         break;
     }
 
@@ -787,7 +902,9 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
         // First pass, disassemble each instruction and collect branch labels
         uint32_t vram = func.vram;
         for (uint32_t word : func.words) {
-            const auto& instr = instructions.emplace_back(byteswap(word), vram);
+            // For big-endian ROMs (N64), byteswap to native. For little-endian ROMs (Midway Seattle), use as-is.
+            uint32_t instr_word = context.little_endian ? word : byteswap(word);
+            const auto& instr = instructions.emplace_back(instr_word, vram);
 
             // If this is a branch or a direct jump, add it to the local label list
             if (instr.isBranch() || instr.getUniqueId() == rabbitizer::InstrId::UniqueId::cpu_j) {

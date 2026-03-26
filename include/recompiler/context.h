@@ -235,6 +235,9 @@ namespace N64Recomp {
         bool skip_validating_reference_symbols = true;
         // Whether all function calls (excluding reference symbols) should go through lookup.
         bool use_lookup_for_all_function_calls = false;
+        // Whether the ROM is little-endian (e.g., Midway Seattle/Vegas MIPS R5000 LE).
+        // When true, skip byteswapping instruction words during recompilation.
+        bool little_endian = false;
 
         //// Only used by the CLI, TODO move this to a struct in the internal headers.
         // A mapping of function name to index in the functions vector

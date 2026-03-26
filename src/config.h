@@ -40,6 +40,7 @@ namespace N64Recomp {
         int32_t functions_per_output_file;
         bool has_entrypoint;
         bool uses_mips3_float_mode;
+        bool little_endian; // For Midway Seattle/Vegas (MIPS R5000 LE) - skip ROM byteswap
         bool single_file_output;
         bool use_absolute_symbols;
         bool unpaired_lo16_warnings;

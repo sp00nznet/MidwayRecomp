@@ -352,6 +352,14 @@ N64Recomp::Config::Config(const char* path) {
             uses_mips3_float_mode = false;
         }
 
+        std::optional<bool> little_endian_opt = input_data["little_endian"].value<bool>();
+        if (little_endian_opt.has_value()) {
+            little_endian = little_endian_opt.value();
+        }
+        else {
+            little_endian = false;
+        }
+
         std::optional<std::string> bss_section_suffix_opt = input_data["bss_section_suffix"].value<std::string>();
         if (bss_section_suffix_opt.has_value()) {
             bss_section_suffix = bss_section_suffix_opt.value();
@@ -698,6 +706,10 @@ bool N64Recomp::Context::from_symbol_file(const std::filesystem::path& symbol_fi
     }
 
     ret.rom = std::move(rom);
+    // Preserve flags set on the output context before the symbol file load.
+    ret.little_endian = out.little_endian;
+    ret.skip_validating_reference_symbols = out.skip_validating_reference_symbols;
+    ret.use_lookup_for_all_function_calls = out.use_lookup_for_all_function_calls;
     out = std::move(ret);
     return true;
 }

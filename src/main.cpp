@@ -318,7 +318,8 @@ int main(int argc, char** argv) {
     ignored_syms_set.insert(config.ignored_funcs.begin(), config.ignored_funcs.end());
 
     N64Recomp::Context context{};
-    
+    context.little_endian = config.little_endian;
+
     if (!config.elf_path.empty() && !config.symbols_file_path.empty()) {
         exit_failure("Config file cannot provide both an elf and a symbols file\n");
     }
@@ -446,7 +447,9 @@ int main(int argc, char** argv) {
 
             for (uint32_t func_index : context.functions_by_vram[config.entrypoint]) {
                 auto& func = context.functions[func_index];
-                if (func.rom == 0x1000) {
+                // Accept entrypoint at ROM offset 0x1000 (N64 convention) or at the
+                // section's ROM base (for non-N64 platforms like Midway Seattle)
+                if (func.rom == 0x1000 || func.vram == (uint32_t)config.entrypoint) {
                     rename_function(func_index, "recomp_entrypoint");
                     found_entrypoint = true;
                     break;
