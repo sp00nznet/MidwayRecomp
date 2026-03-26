@@ -62,7 +62,7 @@ add_subdirectory(lib/fmt)
 set(TOML_ENABLE_FORMATTERS OFF)
 add_subdirectory(lib/tomlplusplus)
 
-# Hardcoded symbol lists (separate library to not force a dependency on N64Recomp)
+# Hardcoded symbol lists (separate library to not force a dependency on the recompiler)
 project(SymbolLists)
 add_library(SymbolLists)
 
@@ -74,11 +74,11 @@ target_include_directories(SymbolLists PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 
-# N64 recompiler core library
-project(N64Recomp)
-add_library(N64Recomp)
+# Midway recompiler core library
+project(MidwayRecomp)
+add_library(MidwayRecomp)
 
-target_sources(N64Recomp PRIVATE
+target_sources(MidwayRecomp PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/analysis.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/operations.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/cgenerator.cpp
@@ -86,47 +86,47 @@ target_sources(N64Recomp PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/mod_symbols.cpp
 )
 
-target_include_directories(N64Recomp PUBLIC
+target_include_directories(MidwayRecomp PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 
-target_link_libraries(N64Recomp SymbolLists fmt rabbitizer tomlplusplus::tomlplusplus)
+target_link_libraries(MidwayRecomp SymbolLists fmt rabbitizer tomlplusplus::tomlplusplus)
 
-# N64 recompiler elf parsing
-project(N64RecompElf)
-add_library(N64RecompElf)
+# Midway recompiler elf parsing
+project(MidwayRecompElf)
+add_library(MidwayRecompElf)
 
-target_sources(N64RecompElf PRIVATE
+target_sources(MidwayRecompElf PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/elf.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/mdebug.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/symbol_lists.cpp
 )
 
-target_include_directories(N64RecompElf PUBLIC
+target_include_directories(MidwayRecompElf PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 
-target_include_directories(N64RecompElf PRIVATE
+target_include_directories(MidwayRecompElf PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/lib/ELFIO"
 )
 
-target_link_libraries(N64RecompElf fmt)
+target_link_libraries(MidwayRecompElf fmt)
 
-# N64 recompiler executable
-project(N64RecompCLI)
-add_executable(N64RecompCLI)
+# Midway recompiler executable
+project(MidwayRecompCLI)
+add_executable(MidwayRecompCLI)
 
-target_sources(N64RecompCLI PRIVATE
+target_sources(MidwayRecompCLI PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/config.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
 )
 
-target_include_directories(N64RecompCLI PRIVATE
+target_include_directories(MidwayRecompCLI PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 
-target_link_libraries(N64RecompCLI fmt rabbitizer tomlplusplus::tomlplusplus N64Recomp N64RecompElf)
-set_target_properties(N64RecompCLI PROPERTIES OUTPUT_NAME N64Recomp)
+target_link_libraries(MidwayRecompCLI fmt rabbitizer tomlplusplus::tomlplusplus MidwayRecomp MidwayRecompElf)
+set_target_properties(MidwayRecompCLI PROPERTIES OUTPUT_NAME MidwayRecomp)
 
 # RSP recompiler
 project(RSPRecomp)
@@ -153,7 +153,7 @@ target_include_directories(RecompModTool PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/ELFIO
 )
 
-target_link_libraries(RecompModTool fmt tomlplusplus::tomlplusplus N64RecompElf)
+target_link_libraries(RecompModTool fmt tomlplusplus::tomlplusplus MidwayRecompElf)
 
 # Offline mod recompiler
 project(OfflineModRecomp)
@@ -164,7 +164,7 @@ target_sources(OfflineModRecomp PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/OfflineModRecomp/main.cpp
 )
 
-target_link_libraries(OfflineModRecomp fmt rabbitizer tomlplusplus::tomlplusplus N64Recomp)
+target_link_libraries(OfflineModRecomp fmt rabbitizer tomlplusplus::tomlplusplus MidwayRecomp)
 
 # Mod combiner
 project(RecompModMerger)
@@ -175,7 +175,7 @@ target_sources(RecompModMerger PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/RecompModMerger/main.cpp
 )
 
-target_link_libraries(RecompModMerger N64Recomp)
+target_link_libraries(RecompModMerger MidwayRecomp)
 
 # Live recompiler
 project(LiveRecomp)
@@ -190,7 +190,7 @@ target_include_directories(LiveRecomp PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/sljit/sljit_src
 )
 
-target_link_libraries(LiveRecomp N64Recomp)
+target_link_libraries(LiveRecomp MidwayRecomp)
 
 # Live recompiler test
 project(LiveRecompTest)

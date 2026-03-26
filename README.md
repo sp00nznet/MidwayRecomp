@@ -1,59 +1,132 @@
-# N64: Recompiled
-N64: Recompiled is a tool to statically recompile N64 binaries into C code that can be compiled for any platform. This can be used for ports or tools as well as for simulating behaviors significantly faster than interpreters or dynamic recompilation can. More widely, it can be used in any context where you want to run some part of an N64 binary in a standalone environment.
+# MidwayRecomp
 
-This is not the first project that uses static recompilation on game console binaries. A well known example is [jamulator](https://github.com/andrewrk/jamulator), which targets NES binaries. Additionally, this is not even the first project to apply static recompilation to N64-related projects: the [IDO static recompilation](https://github.com/decompals/ido-static-recomp) recompiles the SGI IRIX IDO compiler on modern systems to faciliate matching decompilation of N64 games. This project works similarly to the IDO static recomp project in some ways, and that project was my main inspiration for making this.
+A MIPS static recompilation toolkit for **Midway Seattle** and **Midway Vegas** arcade hardware. Converts MIPS-IV R5000 game binaries into portable C code that compiles natively on modern platforms -- no emulator required.
 
-## Table of Contents
-* [How it Works](#how-it-works)
-* [Overlays](#overlays)
-* [How to Use](#how-to-use)
-* [Single File Output Mode](#single-file-output-mode-for-patches)
-* [RSP Microcode Support](#rsp-microcode-support)
-* [Planned Features](#planned-features)
-* [Building](#building)
+Built on top of [N64Recomp](https://github.com/N64Recomp/N64Recomp) by [Mr-Wiseguy](https://github.com/Mr-Wiseguy), which pioneered this approach for N64 titles like [Zelda 64: Recompiled](https://github.com/Zelda64Recomp/Zelda64Recomp). MidwayRecomp extends it with the instruction set and platform support needed for Midway's arcade boards.
 
-## How it Works
-The recompiler works by accepting a list of symbols and metadata alongside the binary with the goal of splitting the input binary into functions that are each individually recompiled into a C function, named according to the metadata.
+## What's Different From N64Recomp
 
-Instructions are processed one-by-one and corresponding C code is emitted as each one gets processed. This translation is very literal in order to keep complexity low. For example, the instruction `addiu $r4, $r4, 0x20`, which adds `0x20` to the 32-bit value in the low bytes of register `$r4` and stores the sign extended 64-bit result in `$r4`, gets recompiled into `ctx->r4 = ADD32(ctx->r4, 0X20);` The `jal` (jump-and-link) instruction is recompiled directly into a function call, and `j` or `b` instructions (unconditional jumps and branches) that can be identified as tail-call optimizations are also recompiled into function calls as well. Branch delay slots are handled by duplicating instructions as necessary. There are other specific behaviors for certain instructions, such as the recompiler attempting to turn a `jr` instruction into a switch-case statement if it can tell that it's being used with a jump table. The recompiler has mostly been tested on binaries built with old MIPS compilers (e.g. mips gcc 2.7.2 and IDO) as well as modern clang targeting mips. Modern mips gcc may trip up the recompiler due to certain optimizations it can do, but those cases can probably be avoided by setting specific compilation flags.
+N64Recomp targets the Nintendo 64 (MIPS III, R4300i, big-endian). Midway Seattle/Vegas boards use the **MIPS R5000** (MIPS IV, little-endian) with different hardware. MidwayRecomp adds:
 
-Every output function created by the recompiler is currently emitted into its own file. An option may be provided in the future to group functions together into output files, which should help improve build times of the recompiler output by reducing file I/O in the build process.
+| Feature | N64Recomp | MidwayRecomp |
+|---------|-----------|--------------|
+| **Endianness** | Big-endian only | Big-endian + little-endian (`little_endian = true`) |
+| **ISA** | MIPS III (R4300i) | MIPS III + MIPS IV extensions |
+| **Conditional moves** | -- | `movn`, `movz` |
+| **Prefetch** | -- | `pref` (stubbed as NOP) |
+| **FP multiply-add** | -- | `madd.s/d`, `msub.s/d`, `nmadd.s/d`, `nmsub.s/d` |
+| **Indexed FP load/store** | -- | `lwxc1`, `ldxc1`, `swxc1`, `sdxc1` |
+| **Exception handlers** | Stack analysis fails on negative SP offsets | Negative SP offsets allowed |
+| **Entrypoint** | Must be at ROM offset 0x1000 | Any ROM offset accepted |
 
-Recompiler output can be compiled with any C compiler (tested with msvc, gcc and clang). The output is expected to be used with a runtime that can provide the necessary functionality and macro implementations to run it. A runtime is provided in [N64ModernRuntime](https://github.com/N64Recomp/N64ModernRuntime) which can be seen in action in the [Zelda 64: Recompiled](https://github.com/Zelda64Recomp/Zelda64Recomp) project.
+Everything else -- the core recompilation engine, ELF parsing, symbol file format, overlay support, mod tools, live recompilation -- is inherited from N64Recomp and works identically.
 
-## Overlays
-Statically linked and relocatable overlays can both be handled by this tool. In both cases, the tool emits function lookups for jump-and-link-register (i.e. function pointers or virtual functions) which the provided runtime can implement using any sort of lookup table. For example, the instruction `jalr $25` would get recompiled as `LOOKUP_FUNC(ctx->r25)(rdram, ctx);` The runtime can then maintain a list of which program sections are loaded and at what address they are at in order to determine which function to run whenever a lookup is triggered during runtime.
+## Target Hardware
 
-For relocatable overlays, the tool will modify supported instructions possessing relocation data (`lui`, `addiu`, load and store instructions) by emitting an extra macro that enables the runtime to relocate the instruction's immediate value field. For example, the instruction `lui $24, 0x80C0` in a section beginning at address `0x80BFA100` with a relocation against a symbol with an address of `0x80BFA730` will get recompiled as `ctx->r24 = S32(RELOC_HI16(1754, 0X630) << 16);`, where 1754 is the index of this section. The runtime can then implement the RELOC_HI16 and RELOC_LO16 macros in order to handle modifying the immediate based on the current loaded address of the section.
+MidwayRecomp is designed for the following Midway arcade platforms:
 
-Support for relocations for TLB mapping is coming in the future, which will add the ability to provide a list of MIPS32 relocations so that the runtime can relocate them on load. Combining this with the functionality used for relocatable overlays should allow running most TLB mapped code without incurring a performance penalty on every RAM access.
+**Midway Seattle** (1996-1999)
+| Component | Spec |
+|-----------|------|
+| CPU | MIPS R5000LE @ 150 MHz (MIPS-IV ISA) |
+| System | Galileo GT64010 |
+| GPU | 3DFX Voodoo 1 (2MB framebuffer + 4MB texture) |
+| Sound | DCS2 (ADSP-2115) |
+| I/O | Midway IOASIC |
 
-## How to Use
-The recompiler is configured by providing a toml file in order to configure the recompiler behavior, which is the first argument provided to the recompiler. The toml is where you specify input and output file paths, as well as optionally stub out specific functions, skip recompilation of specific functions, and patch single instructions in the target binary. There is also planned functionality to be able to emit hooks in the recompiler output by adding them to the toml (the `[[patches.func]]` and `[[patches.hook]]` sections of the linked toml below), but this is currently unimplemented. Documentation on every option that the recompiler provides is not currently available, but an example toml can be found in the Zelda 64: Recompiled project [here](https://github.com/Mr-Wiseguy/Zelda64Recomp/blob/dev/us.rev1.toml).
+**Titles:** CarnEvil, NFL Blitz, NFL Blitz '99, California Speed, Hyperdrive, Wayne Gretzky's 3D Hockey, Mace: The Dark Age, War Gods, San Francisco Rush, Vapor TRX, BioFreaks
 
-Currently, the only way to provide the required metadata is by passing an elf file to this tool. The easiest way to get such an elf is to set up a disassembly or decompilation of the target binary, but there will be support for providing the metadata via a custom format to bypass the need to do so in the future.
+**Midway Vegas** (1998-2002)
+| Component | Spec |
+|-----------|------|
+| CPU | MIPS R5000LE @ 200-250 MHz (MIPS-IV ISA) |
+| System | VRC5074 Nile 4 |
+| GPU | 3DFX Voodoo 2/Banshee |
+| Sound | DCS2 (ADSP-2115) |
+| I/O | Midway IOASIC |
 
-## Single File Output Mode (for Patches)
-This tool can also be configured to recompile in "single file output" mode via an option in the configuration toml. This will emit all of the functions in the provided elf into a single output file. The purpose of this mode is to be able to compile patched versions of functions from the target binary.
+**Titles:** Gauntlet Legends, Gauntlet Dark Legacy, NBA Showtime, NBA on NBC, NFL Blitz 2000/2001, San Francisco Rush 2049, Tenth Degree, Road Burners, Invasion
 
-This mode can be combined with the functionality provided by almost all linkers (ld, lld, MSVC's link.exe, etc.) to replace functions from the original recompiler output with modified versions. Those linkers only look for symbols in a static library if they weren't already found in a previous input file, so providing the recompiled patches to the linker before providing the original recompiler output will result in the patches taking priority over functions with the same names from the original recompiler output.
+## Quick Start
 
-This saves a tremendous amount of time while iterating on patches for the target binary, as you can bypass rerunning the recompiler on the target binary as well as compiling the original recompiler output. An example of using this single file output mode for that purpose can be found in the Zelda 64: Recompiled project [here](https://github.com/Mr-Wiseguy/Zelda64Recomp/blob/dev/patches.toml), with the corresponding Makefile that gets used to build the elf for those patches [here](https://github.com/Mr-Wiseguy/Zelda64Recomp/blob/dev/patches/Makefile).
+```bash
+# Clone with submodules
+git clone --recurse-submodules https://github.com/sp00nznet/MidwayRecomp.git
+cd MidwayRecomp
 
-## RSP Microcode Support
-RSP microcode can also be recompiled with this tool. Currently there is no support for recompiling RSP overlays, but it may be added in the future if desired. Documentation on how to use this functionality will be coming soon.
+# Build
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
 
-## Planned Features
-* Custom metadata format to provide symbol names, relocations, and any other necessary data in order to operate without an elf
-* Emitting multiple functions per output file to speed up compilation
-* Support for recording MIPS32 relocations to allow runtimes to relocate them for TLB mapping
-* Ability to recompile into a dynamic language (such as Lua) to be able to load code at runtime for mod support
+# Run
+./build/Release/MidwayRecomp your_config.toml
+```
 
-## Building
-This project can be built with CMake 3.20 or above and a C++ compiler that supports C++20. This repo uses git submodules, so be sure to clone recursively (`git clone --recurse-submodules`) or initialize submodules recursively after cloning (`git submodule update --init --recursive`). From there, building is identical to any other cmake project, e.g. run `cmake` in the target build folder and point it at the root of this repo, then run `cmake --build .` from that target folder.
+## Configuration
 
-## Libraries Used
-* [rabbitizer](https://github.com/Decompollaborate/rabbitizer) for instruction decoding/analysis
-* [ELFIO](https://github.com/serge1/ELFIO) for elf parsing
-* [toml11](https://github.com/ToruNiina/toml11) for toml parsing
-* [fmtlib](https://github.com/fmtlib/fmt)
+MidwayRecomp uses the same TOML config format as N64Recomp. For Midway Seattle/Vegas binaries, set `little_endian = true`:
+
+```toml
+[input]
+symbols_file_path = "symbols.toml"
+rom_file_path = "game.bin"
+entrypoint = 0x800C4000
+output_func_path = "recomp_out/funcs"
+little_endian = true
+uses_mips3_float_mode = true
+
+[patches]
+stubs = ["exception_handler_func"]
+```
+
+The symbol file format is unchanged from N64Recomp. For flat binaries without ELF headers, provide a symbol TOML listing all functions:
+
+```toml
+[[section]]
+name = ".text"
+rom = 0x1000
+vram = 0x800C4000
+size = 0xDF504
+
+  [[section.functions]]
+  name = "entry_point"
+  vram = 0x800C4000
+  size = 0xA4
+```
+
+See the [N64Recomp documentation](https://github.com/N64Recomp/N64Recomp) for the full config reference -- everything there applies here too.
+
+## How It Works
+
+Same approach as N64Recomp: each MIPS instruction is translated one-to-one into a C statement. The output compiles with any C/C++ compiler and runs with a platform-specific runtime that provides memory access macros and hardware shims.
+
+```
+MIPS:  addiu $r4, $r4, 0x20
+  C:   ctx->r4 = ADD32(ctx->r4, 0X20);
+
+MIPS:  jal 0x80143A10
+  C:   func_80143A10(rdram, ctx);
+
+MIPS:  movn $rd, $rs, $rt        (MIPS IV -- new in MidwayRecomp)
+  C:   if (ctx->r3 != 0) ctx->r2 = ctx->r4;
+
+MIPS:  madd.s $fd, $fr, $fs, $ft (MIPS IV COP1X -- new in MidwayRecomp)
+  C:   ctx->f6.fl = ctx->f8.fl * ctx->f10.fl + ctx->f4.fl;
+```
+
+## Credits
+
+**MidwayRecomp** is a fork of [N64Recomp](https://github.com/N64Recomp/N64Recomp) by **Mr-Wiseguy** and contributors. The core recompilation engine, instruction processing pipeline, ELF parser, symbol file format, overlay/relocation support, mod tools, live recompilation framework, and the overall architecture are all their work. Without N64Recomp, this project would not exist.
+
+The Midway-specific extensions (MIPS IV instructions, little-endian support, exception handler handling) were added by [sp00nznet](https://github.com/sp00nznet).
+
+### Libraries Used
+* [rabbitizer](https://github.com/Decompollaborate/rabbitizer) for MIPS instruction decoding (by Decompollaborate)
+* [ELFIO](https://github.com/serge1/ELFIO) for ELF parsing
+* [toml++](https://github.com/marzer/tomlplusplus) for TOML parsing
+* [fmtlib](https://github.com/fmtlib/fmt) for string formatting
+* [sljit](https://github.com/zherczeg/sljit) for live recompilation JIT
+
+## License
+
+MIT (same as upstream N64Recomp)
