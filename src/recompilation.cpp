@@ -857,7 +857,29 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
         }
 
         generator.process_store_op(op, instruction_context);
+
+        // MIPS IV: Store Conditional sets rt=1 (always succeeds on single-core)
+        if (instr_id == InstrId::cpu_sc || instr_id == InstrId::cpu_scd) {
+            // After the store, set rt = 1 to indicate success.
+            // We do this by emitting: ctx->rN = 1
+            // Use the same approach as addiu rt, zero, 1
+            fmt::print(output_file, ";\n");
+            print_indent();
+            fmt::print(output_file, "ctx->r{} = 1", instruction_context.rt);
+        }
+
         handled = true;
+    }
+
+    // MIPS IV: COP2 load/store instructions (lwc2, ldc2, swc2)
+    // On Midway Seattle R5000, COP2 doesn't exist - these are NOPs or used
+    // for hardware-specific DMA. Emit as NOP (no-op).
+    if (!handled) {
+        if (instr_id == InstrId::cpu_lwc2 || instr_id == InstrId::cpu_ldc2 ||
+            instr_id == InstrId::cpu_swc2) {
+            // Emit nothing - treat as NOP
+            handled = true;
+        }
     }
 
     if (!handled) {

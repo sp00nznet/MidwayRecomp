@@ -154,6 +154,10 @@ namespace N64Recomp {
         { InstrId::cpu_lwr,  { BinaryOpType::LWR, Operand::Rt,    {{ UnaryOpType::None, UnaryOpType::None }, { Operand::Base, Operand::ImmS16 }}} },
         { InstrId::cpu_lwc1, { BinaryOpType::LW, Operand::FtU32L, {{ UnaryOpType::None, UnaryOpType::None }, { Operand::Base, Operand::ImmS16 }}} },
         { InstrId::cpu_ldc1, { BinaryOpType::LD, Operand::FtU64,  {{ UnaryOpType::None, UnaryOpType::None }, { Operand::Base, Operand::ImmS16 }}, true } },
+
+        // MIPS IV: Load Linked (atomic load - treat as regular load on single-core)
+        { InstrId::cpu_ll,   { BinaryOpType::LW,  Operand::Rt,    {{ UnaryOpType::None, UnaryOpType::None }, { Operand::Base, Operand::ImmS16 }}} },
+        { InstrId::cpu_lld,  { BinaryOpType::LD,  Operand::Rt,    {{ UnaryOpType::None, UnaryOpType::None }, { Operand::Base, Operand::ImmS16 }}} },
     };
 
     const std::unordered_map<InstrId, ConditionalBranchOp> conditional_branch_ops {
@@ -190,5 +194,10 @@ namespace N64Recomp {
         { InstrId::cpu_sb,   { StoreOpType::SB,   Operand::Rt }},
         { InstrId::cpu_sdc1, { StoreOpType::SDC1, Operand::FtU64 }},
         { InstrId::cpu_swc1, { StoreOpType::SWC1, Operand::FtU32L }},
+
+        // MIPS IV: Store Conditional (atomic store - treat as regular store on single-core)
+        // Note: sc/scd also set rt=1 (success) - handled in recompilation.cpp
+        { InstrId::cpu_sc,   { StoreOpType::SW,   Operand::Rt }},
+        { InstrId::cpu_scd,  { StoreOpType::SD,   Operand::Rt }},
     };
 }
