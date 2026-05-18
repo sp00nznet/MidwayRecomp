@@ -16,8 +16,15 @@ N64Recomp targets the Nintendo 64 (MIPS III, R4300i, big-endian). Midway Seattle
 | **Prefetch** | -- | `pref` (stubbed as NOP) |
 | **FP multiply-add** | -- | `madd.s/d`, `msub.s/d`, `nmadd.s/d`, `nmsub.s/d` |
 | **Indexed FP load/store** | -- | `lwxc1`, `ldxc1`, `swxc1`, `sdxc1` |
+| **Atomic load/store** | -- | `ll`, `lld`, `sc`, `scd` (treated as plain `lw`/`sw`; `sc`/`scd` always succeed on single-core) |
+| **COP2 load/store** | -- | `lwc2`, `ldc2`, `swc2` (NOP stubs -- Seattle has no COP2) |
 | **Exception handlers** | Stack analysis fails on negative SP offsets | Negative SP offsets allowed |
 | **Entrypoint** | Must be at ROM offset 0x1000 | Any ROM offset accepted |
+
+Without the atomic and COP2 patches, roughly half of CarnEvil's 2,047 game
+functions recompile to empty stubs because they hit `ll`/`sc`/`lwc2`
+instructions the upstream recompiler bails on. With them, all functions
+generate full code (~472K lines of C).
 
 Everything else -- the core recompilation engine, ELF parsing, symbol file format, overlay support, mod tools, live recompilation -- is inherited from N64Recomp and works identically.
 
