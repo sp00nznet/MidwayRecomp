@@ -451,6 +451,18 @@ N64Recomp::Config::Config(const char* path) {
             functions_per_output_file = 50;
         }
 
+        // Filename prefix for emitted funcs_N.c files. Default keeps backward
+        // compatibility with existing projects; set to e.g. "rtos_funcs_" to
+        // avoid object-file name collisions when a consumer builds two
+        // recompiled targets that both glob recomp_out/**/funcs_*.c.
+        std::optional<std::string> output_func_prefix_opt = input_data["output_func_prefix"].value<std::string>();
+        if (output_func_prefix_opt.has_value()) {
+            output_func_prefix = output_func_prefix_opt.value();
+        }
+        else {
+            output_func_prefix = "funcs_";
+        }
+
         // Patches section (optional)
         toml::node_view patches_data = config_data["patches"];
         if (patches_data.is_table()) {

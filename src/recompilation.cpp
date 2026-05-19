@@ -940,9 +940,13 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
         // Analyze function
         N64Recomp::FunctionStats stats{};
         if (!N64Recomp::analyze_function(context, func, instructions, stats)) {
-            fmt::print(stderr, "Failed to analyze {}\n", func.name);
-            output_file.clear();
-            return false;
+            fmt::print(stderr, "Failed to analyze {}, emitting stub\n", func.name);
+            // Same fix as the instruction-failure path: emit a syntactically
+            // valid function tail so the partial header that's already in
+            // the file compiles.
+            fmt::print(output_file, "    /* analyze_function failed; stubbed */\n    return;\n");
+            generator.emit_function_end();
+            return true;
         }
 
         std::unordered_set<uint32_t> jtbl_lw_instructions{};
@@ -984,9 +988,16 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
 
             // Process the current instruction and check for errors
             if (process_instruction(generator, context, func, func_index, stats, jtbl_lw_instructions, instr_index, instructions, output_file, false, needs_link_branch, num_link_branches, reloc_index, needs_link_branch, is_branch_likely, tag_reference_relocs, static_funcs_out) == false) {
-                fmt::print(stderr, "Error in recompiling {}, clearing output file\n", func.name);
-                output_file.clear();
-                return false;
+                fmt::print(stderr, "Error in recompiling {} at instr 0x{:08X}, stubbing rest of function\n", func.name, vram);
+                // Emit a syntactically valid function tail so the partial
+                // function body that's already in the output file can still
+                // compile. The original behavior (return false without
+                // calling emit_function_end) left an unclosed { in the .c
+                // file and broke the consumer's build. Better to emit a
+                // no-op stub for the rest of the function.
+                fmt::print(output_file, "    /* unsupported instruction at 0x{:08X}; rest of function stubbed */\n    return;\n", vram);
+                generator.emit_function_end();
+                return true;
             }
             // If a link return branch was generated, advance the number of link return branches
             if (had_link_branch) {

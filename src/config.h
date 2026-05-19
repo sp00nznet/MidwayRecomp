@@ -38,6 +38,7 @@ namespace N64Recomp {
     struct Config {
         int32_t entrypoint;
         int32_t functions_per_output_file;
+        std::string output_func_prefix; // Prefix for emitted funcs_N.c files; default "funcs_". Set to e.g. "rtos_funcs_" to avoid object-file name collisions when a consumer builds two recompiled targets in the same project.
         bool has_entrypoint;
         bool uses_mips3_float_mode;
         bool little_endian; // For Midway Seattle/Vegas (MIPS R5000 LE) - skip ROM byteswap

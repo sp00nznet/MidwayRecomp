@@ -593,7 +593,7 @@ int main(int argc, char** argv) {
     size_t cur_file_function_count = 0;
     
     auto open_new_output_file = [&config, &current_output_file, &output_file_count, &cur_file_function_count]() {
-        current_output_file = std::ofstream{config.output_func_path / fmt::format("funcs_{}.c", output_file_count)};
+        current_output_file = std::ofstream{config.output_func_path / fmt::format("{}{}.c", config.output_func_prefix, output_file_count)};
         // Write the file header
         fmt::print(current_output_file,
             "{}\n"
