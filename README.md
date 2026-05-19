@@ -20,6 +20,9 @@ N64Recomp targets the Nintendo 64 (MIPS III, R4300i, big-endian). Midway Seattle
 | **COP2 load/store** | -- | `lwc2`, `ldc2`, `swc2` (NOP stubs -- Seattle has no COP2) |
 | **Exception handlers** | Stack analysis fails on negative SP offsets | Negative SP offsets allowed |
 | **Entrypoint** | Must be at ROM offset 0x1000 | Any ROM offset accepted |
+| **Output filename prefix** | Always `funcs_N.c` | Configurable `output_func_prefix` (avoids obj-file collisions when consumer builds multiple recompiled targets in one project) |
+| **Unsupported-instruction handling** | Bails mid-function, leaves unclosed brace in `.c` output | Emits a stub return + closes the function so the build can still link |
+| **External-branch fallback** | Emits `goto L_XXXX;` to an undefined label, breaks consumer's build | If branch target isn't a known function, emits `return;` instead of an unresolvable goto |
 
 Without the atomic and COP2 patches, roughly half of CarnEvil's 2,047 game
 functions recompile to empty stubs because they hit `ll`/`sc`/`lwc2`
@@ -79,12 +82,19 @@ symbols_file_path = "symbols.toml"
 rom_file_path = "game.bin"
 entrypoint = 0x800C4000
 output_func_path = "recomp_out/funcs"
+output_func_prefix = "funcs_"  # default; set distinctly per target to avoid obj-file collisions
 little_endian = true
 uses_mips3_float_mode = true
 
 [patches]
 stubs = ["exception_handler_func"]
 ```
+
+If you have a project that needs to recompile multiple binaries
+(e.g. a game and its RTOS), give each one a different
+`output_func_prefix` so the emitted source files have distinct
+basenames (`funcs_0.c` vs `rtos_funcs_0.c`). Otherwise both
+produce `funcs_N.obj` and the linker only sees one set.
 
 The symbol file format is unchanged from N64Recomp. For flat binaries without ELF headers, provide a symbol TOML listing all functions:
 
