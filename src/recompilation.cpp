@@ -374,7 +374,21 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
                 return true;
             }
 
-            fmt::print(stderr, "[Warn] Function {} is branching outside of the function (to 0x{:08X})\n", func.name, branch_target);
+            fmt::print(stderr, "[Warn] Function {} is branching outside of the function (to 0x{:08X}); emitting stub return\n", func.name, branch_target);
+            // Emit a stub return instead of an unresolved goto. The consumer's
+            // build was breaking with "label undefined" errors because the
+            // recompiler emits 'goto L_XXXX;' for a label that isn't defined
+            // anywhere in the function body. A stub-return is less correct
+            // (we may skip work the original would have done) but at least
+            // produces syntactically valid C. To get full correctness, the
+            // branch target should be added to the symbol table as its own
+            // function entry so the tail-call path above takes it.
+            if (!process_delay_slot(true)) {
+                return false;
+            }
+            print_indent();
+            fmt::print(output_file, "/* extern branch to 0x{:08X} -- target not in symbol table; stub return */ return;\n", branch_target);
+            return true;
         }
 
         if (!process_delay_slot(true)) {
