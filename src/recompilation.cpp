@@ -1030,9 +1030,79 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
         }
     }
 
+    // Split-entry fall-through fix.
+    //
+    // MidwayRecomp (like N64Recomp) emits one C function per symbol. When a
+    // symbol is an *alternate entry point* that sits in the middle of a larger
+    // routine, the original code simply falls through from the end of this
+    // symbol's words into the next sequential function. The per-function model
+    // turns that fall-through into an implicit C `return`, silently dropping the
+    // rest of the routine. (On CarnEvil this broke the entity-registration path:
+    // static_0_800CC218 loaded a value and should have fallen through into
+    // func_800CC220 to actually store the handler + bump a counter.)
+    //
+    // Detect the case conservatively: if the function did NOT stub out and
+    // neither of its last two instructions is a branch/jump/return (so control
+    // genuinely runs off the end), and a known function begins exactly at
+    // func_vram_end, emit a tail call into that function followed by a return.
+    if (!func.stubbed && !instructions.empty()) {
+        using UID = rabbitizer::InstrId::UniqueId;
+        auto is_control_transfer = [](const rabbitizer::InstructionCpu& in) {
+            UID id = in.getUniqueId();
+            return in.isBranch()
+                || id == UID::cpu_j   || id == UID::cpu_jr
+                || id == UID::cpu_jal || id == UID::cpu_jalr
+                || id == UID::cpu_eret;
+        };
+        bool falls_through = !is_control_transfer(instructions.back());
+        if (falls_through && instructions.size() >= 2) {
+            // The very last word may be the delay slot of a jump/branch one
+            // instruction earlier; if so, control does not fall through.
+            if (is_control_transfer(instructions[instructions.size() - 2])) {
+                falls_through = false;
+            }
+        }
+        if (falls_through) {
+            uint32_t func_vram_end = func.vram + (uint32_t)func.words.size() * 4u;
+            size_t matched_func_index = (size_t)-1;
+            JalResolutionResult r = resolve_jal(context, func.section_index, func_vram_end, matched_func_index);
+            switch (r) {
+                case JalResolutionResult::Match:
+                    fmt::print(stderr, "[fallthrough] {} (0x{:08X}) -> {} (0x{:08X})\n",
+                        func.name, func.vram, context.functions[matched_func_index].name, func_vram_end);
+                    fmt::print(output_file, "    ");
+                    generator.emit_function_call(context, matched_func_index);
+                    fmt::print(output_file, "    ");
+                    generator.emit_return(context, func_index);
+                    break;
+                case JalResolutionResult::CreateStatic: {
+                    std::string nm = fmt::format("static_{}_{:08X}", func.section_index, func_vram_end);
+                    static_funcs_out[func.section_index].push_back(func_vram_end);
+                    fmt::print(stderr, "[fallthrough] {} (0x{:08X}) -> {} (static, 0x{:08X})\n",
+                        func.name, func.vram, nm, func_vram_end);
+                    fmt::print(output_file, "    ");
+                    generator.emit_named_function_call(nm);
+                    fmt::print(output_file, "    ");
+                    generator.emit_return(context, func_index);
+                    break;
+                }
+                case JalResolutionResult::Ambiguous:
+                    fmt::print(output_file, "    ");
+                    generator.emit_function_call_lookup(func_vram_end);
+                    fmt::print(output_file, "    ");
+                    generator.emit_return(context, func_index);
+                    break;
+                default:
+                    // NoMatch / Error: nothing known at func_vram_end, leave the
+                    // implicit return in place.
+                    break;
+            }
+        }
+    }
+
     // Terminate the function
     generator.emit_function_end();
-    
+
     return true;
 }
 
