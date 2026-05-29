@@ -132,6 +132,16 @@ MIPS:  madd.s $fd, $fr, $fs, $ft (MIPS IV COP1X -- new in MidwayRecomp)
   C:   ctx->f6.fl = ctx->f8.fl * ctx->f10.fl + ctx->f4.fl;
 ```
 
+## Tooling
+
+`tools/` contains a project-agnostic, Ghidra-assisted **function naming**
+pipeline. It exports a Ghidra analysis to JSON, derives meaningful names from the
+binary's own debug strings (many self-name the function that prints them, e.g.
+`coin_volume_proc():`, `sst1InitSli`) plus an optional hand-verified seed list,
+and merges them into a symbols TOML so generated code reads
+`main_init_sound_800C5E30(...)` instead of `func_800C5E30(...)`. See
+[tools/README.md](tools/README.md).
+
 ## Credits
 
 **MidwayRecomp** is a fork of [N64Recomp](https://github.com/N64Recomp/N64Recomp) by **Mr-Wiseguy** and contributors. The core recompilation engine, instruction processing pipeline, ELF parser, symbol file format, overlay/relocation support, mod tools, live recompilation framework, and the overall architecture are all their work. Without N64Recomp, this project would not exist.
