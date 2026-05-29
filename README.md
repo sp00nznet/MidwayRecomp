@@ -23,6 +23,7 @@ N64Recomp targets the Nintendo 64 (MIPS III, R4300i, big-endian). Midway Seattle
 | **Output filename prefix** | Always `funcs_N.c` | Configurable `output_func_prefix` (avoids obj-file collisions when consumer builds multiple recompiled targets in one project) |
 | **Unsupported-instruction handling** | Bails mid-function, leaves unclosed brace in `.c` output | Emits a stub return + closes the function so the build can still link |
 | **External-branch fallback** | Emits `goto L_XXXX;` to an undefined label, breaks consumer's build | If branch target isn't a known function, emits `return;` instead of an unresolvable goto |
+| **Split-entry fall-through** | Alternate entry points that fall through into the next function become an implicit `return`, silently dropping the rest of the routine | If a function runs off its end (last two instructions aren't a branch/jump/return) into a known function, emits a tail call + return so control continues |
 
 Without the atomic and COP2 patches, roughly half of CarnEvil's 2,047 game
 functions recompile to empty stubs because they hit `ll`/`sc`/`lwc2`
