@@ -428,6 +428,12 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
     case InstrId::cpu_nop:
         fmt::print(output_file, "\n");
         break;
+    // CACHE: cache maintenance hint. No architecturally-visible memory effect in
+    // our flat-memory model, so emit nothing. (Midway code uses CACHE in its
+    // texture-upload copy loops; without this they'd be unrecompilable.)
+    case InstrId::cpu_cache:
+        fmt::print(output_file, "\n");
+        break;
     // Cop0 (Limited functionality)
     case InstrId::cpu_mfc0:
         {
