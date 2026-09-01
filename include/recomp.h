@@ -436,6 +436,11 @@ extern "C" {
 
 void cop0_status_write(recomp_context* ctx, gpr value);
 gpr cop0_status_read(recomp_context* ctx);
+// Any COP0 register other than Status, by architectural register number
+// (9 = Count, 11 = Compare, 13 = Cause, ...). Emitted for mfc0/mtc0 on the
+// registers an RTOS uses; the runtime decides what each one means.
+void cop0_reg_write(recomp_context* ctx, int reg, gpr value);
+gpr cop0_reg_read(recomp_context* ctx, int reg);
 void switch_error(const char* func, uint32_t vram, uint32_t jtbl);
 void do_break(uint32_t vram);
 

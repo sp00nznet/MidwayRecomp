@@ -434,6 +434,17 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
     case InstrId::cpu_cache:
         fmt::print(output_file, "\n");
         break;
+    // TLB maintenance. Recompiled code runs against a flat rdram array with no
+    // address translation, so writing or probing a TLB entry has nothing to act
+    // on. The RTOS still does it during startup, and refusing to recompile
+    // would stub out the whole boot routine over an instruction that cannot
+    // matter here.
+    case InstrId::cpu_tlbwi:
+    case InstrId::cpu_tlbwr:
+    case InstrId::cpu_tlbr:
+    case InstrId::cpu_tlbp:
+        fmt::print(output_file, "\n");
+        break;
     // Cop0 (Limited functionality)
     case InstrId::cpu_mfc0:
         {
@@ -444,8 +455,15 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
                 generator.emit_cop0_status_read(rt);
                 break;
             default:
-                fmt::print(stderr, "Unhandled cop0 register in mfc0: {}\n", (int)reg);
-                return false;
+                // Only Status has dedicated generator hooks upstream, but an
+                // RTOS drives Count/Compare/Cause/Wired far more than it ever
+                // touches Status. Route the rest through a register-indexed
+                // accessor rather than refusing to recompile the function.
+                // rabbitizer's Cop0Reg enum is in COP0 register order, so the
+                // cast is the architectural register number.
+                print_indent();
+                fmt::print(output_file, "ctx->r{} = cop0_reg_read(ctx, {});\n", rt, (int)reg);
+                break;
             }
             break;
         }
@@ -458,8 +476,9 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
                 generator.emit_cop0_status_write(rt);
                 break;
             default:
-                fmt::print(stderr, "Unhandled cop0 register in mtc0: {}\n", (int)reg);
-                return false;
+                print_indent();
+                fmt::print(output_file, "cop0_reg_write(ctx, {}, ctx->r{});\n", (int)reg, rt);
+                break;
             }
             break;
         }
@@ -722,7 +741,43 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
                     handled = false;
                     break;
                 }
-            } else {
+            }
+            // MIPS IV COP1 (opcode 0x11) reciprocal estimates. rabbitizer only
+            // knows rsqrt for the R5900 and has no recip at all, so these come
+            // through as INVALID. Midway's math library guards a divide with
+            // c.eq.s/bc1t and then uses recip.s, so without this the whole
+            // routine stubs out over one instruction.
+            //
+            // The hardware estimates; computing the exact value is closer to
+            // the intended result than an estimate would be, and every caller
+            // treats it as a divide.
+            else if (opcode == 0x11) {
+                uint32_t fmt_field = (raw >> 21) & 0x1F;
+                uint32_t cop1_funct = raw & 0x3F;
+                int cop1_fs_idx = (raw >> 11) & 0x1F;
+                int cop1_fd_idx = (raw >> 6) & 0x1F;
+                bool is_double = (fmt_field == 0x11);
+                const char* field = is_double ? "d" : "fl";
+                const char* one = is_double ? "1.0" : "1.0f";
+
+                if ((fmt_field == 0x10 || fmt_field == 0x11) && cop1_funct == 0x15) {
+                    // RECIP.fmt fd, fs  =>  fd = 1 / fs
+                    fmt::print(output_file, "ctx->f{}.{} = {} / ctx->f{}.{};\n",
+                        cop1_fd_idx, field, one, cop1_fs_idx, field);
+                    handled = true;
+                }
+                else if ((fmt_field == 0x10 || fmt_field == 0x11) && cop1_funct == 0x16) {
+                    // RSQRT.fmt fd, fs  =>  fd = 1 / sqrt(fs)
+                    fmt::print(output_file, "ctx->f{}.{} = {} / {}(ctx->f{}.{});\n",
+                        cop1_fd_idx, field, one, is_double ? "sqrt" : "sqrtf",
+                        cop1_fs_idx, field);
+                    handled = true;
+                }
+                else {
+                    handled = false;
+                }
+            }
+            else {
                 handled = false;
             }
         }
@@ -1015,7 +1070,25 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
                 // calling emit_function_end) left an unclosed { in the .c
                 // file and broke the consumer's build. Better to emit a
                 // no-op stub for the rest of the function.
-                fmt::print(output_file, "    /* unsupported instruction at 0x{:08X}; rest of function stubbed */\n    return;\n", vram);
+                // Name the instruction in the comment too. Otherwise the only
+                // record of what failed is a stderr line from a build that has
+                // long since scrolled away, and the .c file just says "at
+                // 0x...". Most of these turn out to be a jump to an address
+                // that needs adding to the symbol file, which the mnemonic
+                // makes obvious at a glance.
+                fmt::print(output_file, "    /* unsupported: {} at 0x{:08X}; rest of function stubbed */\n    return;\n",
+                           instructions[instr_index].disassemble(0), vram);
+                // Code already emitted above may contain a forward goto to a
+                // label further down the function, which stubbing here would
+                // leave undefined and break the consumer's build. Emit the
+                // remaining labels as dead returns so those gotos still
+                // resolve. Unreachable by construction - control has already
+                // returned - but the compiler needs the labels to exist.
+                while (cur_label != branch_labels.end()) {
+                    generator.emit_label(fmt::format("L_{:08X}", *cur_label));
+                    fmt::print(output_file, "    return;\n");
+                    ++cur_label;
+                }
                 generator.emit_function_end();
                 return true;
             }

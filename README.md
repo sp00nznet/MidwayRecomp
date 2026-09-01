@@ -18,12 +18,25 @@ N64Recomp targets the Nintendo 64 (MIPS III, R4300i, big-endian). Midway Seattle
 | **Indexed FP load/store** | -- | `lwxc1`, `ldxc1`, `swxc1`, `sdxc1` |
 | **Atomic load/store** | -- | `ll`, `lld`, `sc`, `scd` (treated as plain `lw`/`sw`; `sc`/`scd` always succeed on single-core) |
 | **COP2 load/store** | -- | `lwc2`, `ldc2`, `swc2` (NOP stubs -- Seattle has no COP2) |
+| **Reciprocal estimates** | -- | `recip.s/d`, `rsqrt.s/d` (MIPS IV COP1 funct 0x15/0x16; rabbitizer only knows `rsqrt` as an R5900 op, so these are decoded from the raw word) |
+| **COP0 registers** | `Status` only; anything else aborts the function | Any register, via `cop0_reg_read`/`cop0_reg_write` indexed by architectural number -- an RTOS drives `Count`/`Compare`/`Cause` and the TLB setup registers far more than it touches `Status` |
+| **TLB maintenance** | -- | `tlbwi`, `tlbwr`, `tlbr`, `tlbp` emitted as no-ops (recompiled code runs against flat memory, so there is nothing to translate) |
 | **Exception handlers** | Stack analysis fails on negative SP offsets | Negative SP offsets allowed |
 | **Entrypoint** | Must be at ROM offset 0x1000 | Any ROM offset accepted |
 | **Output filename prefix** | Always `funcs_N.c` | Configurable `output_func_prefix` (avoids obj-file collisions when consumer builds multiple recompiled targets in one project) |
-| **Unsupported-instruction handling** | Bails mid-function, leaves unclosed brace in `.c` output | Emits a stub return + closes the function so the build can still link |
+| **Unsupported-instruction handling** | Bails mid-function, leaves unclosed brace in `.c` output | Emits a stub return + closes the function so the build can still link, names the offending instruction in the comment, and emits the function's remaining labels as dead returns so forward `goto`s still resolve |
 | **External-branch fallback** | Emits `goto L_XXXX;` to an undefined label, breaks consumer's build | If branch target isn't a known function, emits `return;` instead of an unresolvable goto |
 | **Split-entry fall-through** | Alternate entry points that fall through into the next function become an implicit `return`, silently dropping the rest of the routine | If a function runs off its end (last two instructions aren't a branch/jump/return) into a known function, emits a tail call + return so control continues |
+
+On CarnEvil, the COP0, TLB and `recip.s` additions take the RTOS from 13
+partially-stubbed functions to 6. All 6 that remain are a `j`/`jal` to an
+address missing from the symbol file -- a symbol problem, not an instruction
+problem, and the stub comment now names the instruction so it reads that way.
+
+The game binary still has one, and it is a real gap: `bc1f` on floating-point
+condition code 1. MIPS IV widened `c.cond.fmt`/`bc1t`/`bc1f` from a single
+condition bit to eight, and the recompiler still models one (`int c1cs`).
+Supporting the rest means widening that to an array through both generators.
 
 Without the atomic and COP2 patches, roughly half of CarnEvil's 2,047 game
 functions recompile to empty stubs because they hit `ll`/`sc`/`lwc2`
