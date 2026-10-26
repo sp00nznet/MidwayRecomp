@@ -715,6 +715,13 @@ int main(int argc, char** argv) {
     for (size_t i = 0; i < context.functions.size(); i++) {
         const auto& func = context.functions[i];
 
+        // Functions the config marks as ignored are implemented by the runtime,
+        // but recompiled code still calls them, so they still get declared.
+        if (func.ignored && std::find(config.ignored_funcs.begin(), config.ignored_funcs.end(), func.name) != config.ignored_funcs.end()) {
+            fmt::print(func_header_file,
+                "void {}(uint8_t* rdram, recomp_context* ctx);\n", func.name);
+        }
+
         if (!func.ignored && func.words.size() != 0) {
             fmt::print(func_header_file,
                 "void {}(uint8_t* rdram, recomp_context* ctx);\n", func.name);

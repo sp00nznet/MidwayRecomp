@@ -422,6 +422,15 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
 
     int cop1_cs = (int)instr.Get_cop1cs();
 
+    // Raw word, before the condition-code masking done at disassembly.
+    uint32_t raw_word = context.little_endian ? func.words[instr_index] : byteswap(func.words[instr_index]);
+    int cop1_cc = 0;
+    if ((raw_word >> 26) == 0x11 && ((raw_word >> 21) & 0x1F) == 0x08)
+        cop1_cc = (raw_word >> 18) & 7;
+    else if ((raw_word >> 26) == 0x11 && (raw_word & 0x30) == 0x30)
+        cop1_cc = (raw_word >> 8) & 7;
+    auto cc_name = [](int cc) { return cc ? fmt::format("c1cs{}", cc) : std::string("c1cs"); };
+
     bool handled = true;
 
     switch (instr_id) {
@@ -652,7 +661,25 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
         {
             uint32_t raw = instr.getRaw();
             uint32_t opcode = (raw >> 26) & 0x3F;
-            if (opcode == 0x13) {
+            if (opcode == 0x00 && (raw & 0x3F) == 0x01) {
+                // MOVF/MOVT rd, rs, cc: move if FP condition cc is false/true
+                int cc = (raw >> 18) & 7;
+                bool tf = (raw >> 16) & 1;
+                print_indent();
+                fmt::print(output_file, "if ({} {} 0) ctx->r{} = ctx->r{};\n", cc_name(cc), tf ? "!=" : "==", (raw >> 11) & 0x1F, (raw >> 21) & 0x1F);
+                handled = true;
+            }
+            else if (opcode == 0x11 && (raw & 0x3F) == 0x11 && (((raw >> 21) & 0x1F) == 0x10 || ((raw >> 21) & 0x1F) == 0x11)) {
+                // MOVF.fmt/MOVT.fmt fd, fs, cc
+                int cc = (raw >> 18) & 7;
+                bool tf = (raw >> 16) & 1;
+                bool dbl = ((raw >> 21) & 0x1F) == 0x11;
+                print_indent();
+                fmt::print(output_file, "if ({} {} 0) ctx->f{}.{} = ctx->f{}.{};\n", cc_name(cc), tf ? "!=" : "==",
+                    (raw >> 6) & 0x1F, dbl ? "u64" : "u32l", (raw >> 11) & 0x1F, dbl ? "u64" : "u32l");
+                handled = true;
+            }
+            else if (opcode == 0x13) {
                 // COP1X: indexed FP loads/stores and FP multiply-add family
                 uint32_t cop1x_funct = raw & 0x3F;
                 int cop1x_fr = (raw >> 21) & 0x1F; // base register (also fr for madd)
@@ -677,18 +704,18 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
                 print_indent();
                 switch (cop1x_funct) {
                 case 0x00: // LWXC1 fd, index(base)
-                    fmt::print(output_file, "ctx->f{}.u32l = MEM_W({}, ctx->r{} + ctx->r{});\n",
-                        cop1x_fd_idx, cop1x_fd_idx, cop1x_fr, cop1x_ft_idx);
+                    fmt::print(output_file, "ctx->f{}.u32l = MEM_W(0, ctx->r{} + ctx->r{});\n",
+                        cop1x_fd_idx, cop1x_fr, cop1x_ft_idx);
                     handled = true;
                     break;
                 case 0x01: // LDXC1 fd, index(base)
-                    fmt::print(output_file, "ctx->f{}.u64 = LD({}, ctx->r{} + ctx->r{});\n",
-                        cop1x_fd_idx, cop1x_fd_idx, cop1x_fr, cop1x_ft_idx);
+                    fmt::print(output_file, "ctx->f{}.u64 = LD(0, ctx->r{} + ctx->r{});\n",
+                        cop1x_fd_idx, cop1x_fr, cop1x_ft_idx);
                     handled = true;
                     break;
                 case 0x08: // SWXC1 fs, index(base)
-                    fmt::print(output_file, "MEM_W({}, ctx->r{} + ctx->r{}) = ctx->f{}.u32l;\n",
-                        0, cop1x_fr, cop1x_ft_idx, cop1x_fs_idx);
+                    fmt::print(output_file, "SW(ctx->f{}.u32l, 0, ctx->r{} + ctx->r{});\n",
+                        cop1x_fs_idx, cop1x_fr, cop1x_ft_idx);
                     handled = true;
                     break;
                 case 0x09: // SDXC1 fs, index(base)
@@ -793,6 +820,7 @@ bool process_instruction(GeneratorType& generator, const N64Recomp::Context& con
     instruction_context.fs = fs;
     instruction_context.ft = ft;
     instruction_context.cop1_cs = cop1_cs;
+    instruction_context.cop1_cc = cop1_cc;
     instruction_context.imm16 = imm;
     instruction_context.reloc_tag_as_reference = (reloc_reference_symbol != (size_t)-1) && tag_reference_relocs;
     instruction_context.reloc_type = reloc_type;
@@ -1001,6 +1029,13 @@ bool recompile_function_impl(GeneratorType& generator, const N64Recomp::Context&
         for (uint32_t word : func.words) {
             // For big-endian ROMs (N64), byteswap to native. For little-endian ROMs (Midway Seattle), use as-is.
             uint32_t instr_word = context.little_endian ? word : byteswap(word);
+            // MIPS IV bc1f/bc1t and c.cond.fmt carry a condition code (bits 20:18
+            // and 10:8) that MIPS III decoding rejects. Decode without it;
+            // process_instruction reads it back from the raw word.
+            if ((instr_word >> 26) == 0x11 && ((instr_word >> 21) & 0x1F) == 0x08)
+                instr_word &= ~(7u << 18);
+            else if ((instr_word >> 26) == 0x11 && (((instr_word >> 21) & 0x1F) == 0x10 || ((instr_word >> 21) & 0x1F) == 0x11) && (instr_word & 0x30) == 0x30)
+                instr_word &= ~(7u << 8);
             const auto& instr = instructions.emplace_back(instr_word, vram);
 
             // If this is a branch or a direct jump, add it to the local label list
