@@ -27,16 +27,20 @@ N64Recomp targets the Nintendo 64 (MIPS III, R4300i, big-endian). Midway Seattle
 | **Unsupported-instruction handling** | Bails mid-function, leaves unclosed brace in `.c` output | Emits a stub return + closes the function so the build can still link, names the offending instruction in the comment, and emits the function's remaining labels as dead returns so forward `goto`s still resolve |
 | **External-branch fallback** | Emits `goto L_XXXX;` to an undefined label, breaks consumer's build | If branch target isn't a known function, emits `return;` instead of an unresolvable goto |
 | **Split-entry fall-through** | Alternate entry points that fall through into the next function become an implicit `return`, silently dropping the rest of the routine | If a function runs off its end (last two instructions aren't a branch/jump/return) into a known function, emits a tail call + return so control continues |
+| **FP condition codes** | One (`c1cs`) | All eight MIPS IV condition codes for `c.cond.fmt`, `bc1t`/`bc1f` (`c1cs`, `c1cs1`..`c1cs7`), plus `movf`/`movt` and `movf.fmt`/`movt.fmt`. rabbitizer rejects a non-zero condition code in MIPS III mode, so the field is masked for decoding and read back from the raw word |
+| **Stores** | `MEM_W(off, base) = val`: one lvalue macro for loads and stores | `SW(val, off, base)` / `SH` / `SB`, separate from the `MEM_W` load. A runtime can then give a device register exactly one read or one write per access, instead of a read-modify-write through a pointer |
+| **`break`** | `do_break(vram)` | `do_break(rdram, ctx, vram)`, so a runtime can service the system calls an RTOS makes through the breakpoint exception |
+| **Ignored functions** | Left out of `funcs.h` | Still declared in `funcs.h`: the runtime implements them, but recompiled code calls them |
 
 On CarnEvil, the COP0, TLB and `recip.s` additions take the RTOS from 13
 partially-stubbed functions to 6. All 6 that remain are a `j`/`jal` to an
 address missing from the symbol file -- a symbol problem, not an instruction
 problem, and the stub comment now names the instruction so it reads that way.
 
-The game binary still has one, and it is a real gap: `bc1f` on floating-point
-condition code 1. MIPS IV widened `c.cond.fmt`/`bc1t`/`bc1f` from a single
-condition bit to eight, and the recompiler still models one (`int c1cs`).
-Supporting the rest means widening that to an array through both generators.
+The multi-condition-code support covers the C generator only; the live
+recompiler (LiveRecomp/sljit) still models one condition bit. Runtimes written
+against the older interface need `SW`/`SH`/`SB` macros and the three-argument
+`do_break`.
 
 Without the atomic and COP2 patches, roughly half of CarnEvil's 2,047 game
 functions recompile to empty stubs because they hit `ll`/`sc`/`lwc2`

@@ -202,7 +202,7 @@ void N64Recomp::CGenerator::get_operand_string(Operand operand, UnaryOpType oper
             operand_string = fmt::format("({} + 32)", context.sa);
             break;
         case Operand::Cop1cs:
-            operand_string = fmt::format("c1cs");
+            operand_string = context.cop1_cc ? fmt::format("c1cs{}", context.cop1_cc) : std::string("c1cs");
             break;
         case Operand::Hi:
             operand_string = "hi";
@@ -398,7 +398,8 @@ void N64Recomp::CGenerator::emit_function_start(const std::string& function_name
         "RECOMP_FUNC void {}(uint8_t* rdram, recomp_context* ctx) {{\n"
         // these variables shouldn't need to be preserved across function boundaries, so make them local for more efficient output
         "    uint64_t hi = 0, lo = 0, result = 0;\n"
-        "    int c1cs = 0;\n", // cop1 conditional signal
+        // cop1 condition codes: MIPS III has one (c1cs), MIPS IV adds cc1..cc7
+        "    int c1cs = 0, c1cs1 = 0, c1cs2 = 0, c1cs3 = 0, c1cs4 = 0, c1cs5 = 0, c1cs6 = 0, c1cs7 = 0;\n",
         function_name);
 }
 
@@ -547,7 +548,7 @@ void N64Recomp::CGenerator::emit_syscall(uint32_t instr_vram) const {
 }
 
 void N64Recomp::CGenerator::emit_do_break(uint32_t instr_vram) const {
-    fmt::print(output_file, "do_break({});\n", instr_vram);
+    fmt::print(output_file, "do_break(rdram, ctx, 0x{:08X});\n", instr_vram);
 }
 
 void N64Recomp::CGenerator::emit_pause_self() const {
@@ -615,8 +616,8 @@ void N64Recomp::CGenerator::process_store_op(const StoreOp& op, const Instructio
             syntax = StoreSyntax::FuncWithRdram;
             break;
         case StoreOpType::SW:
-            func_text = "MEM_W";
-            syntax = StoreSyntax::Assignment;
+            func_text = "SW";
+            syntax = StoreSyntax::Func;
             break;
         case StoreOpType::SWL:
             func_text = "do_swl";
@@ -627,20 +628,20 @@ void N64Recomp::CGenerator::process_store_op(const StoreOp& op, const Instructio
             syntax = StoreSyntax::FuncWithRdram;
             break;
         case StoreOpType::SH:
-            func_text = "MEM_H";
-            syntax = StoreSyntax::Assignment;
+            func_text = "SH";
+            syntax = StoreSyntax::Func;
             break;
         case StoreOpType::SB:
-            func_text = "MEM_B";
-            syntax = StoreSyntax::Assignment;
+            func_text = "SB";
+            syntax = StoreSyntax::Func;
             break;
         case StoreOpType::SDC1:
             func_text = "SD";
             syntax = StoreSyntax::Func;
             break;
         case StoreOpType::SWC1:
-            func_text = "MEM_W";
-            syntax = StoreSyntax::Assignment;
+            func_text = "SW";
+            syntax = StoreSyntax::Func;
             break;
         default:
             throw std::runtime_error("Unhandled store op");

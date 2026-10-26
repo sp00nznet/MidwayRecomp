@@ -16,6 +16,7 @@ namespace N64Recomp {
         int ft;
 
         int cop1_cs;
+        int cop1_cc; // MIPS IV FP condition code (0-7) for c.cond/bc1t/bc1f
 
         uint16_t imm16;
 

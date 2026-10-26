@@ -1,0 +1,18 @@
+Third-party code in this repository
+===================================
+
+This repository is a fork of N64Recomp (https://github.com/N64Recomp/N64Recomp),
+MIT, Copyright (c) 2024 Wiseguy. Its LICENSE is kept unchanged at the root and
+covers the upstream code and our changes.
+
+Submodules (not vendored; each keeps its own LICENSE in lib/<name>/):
+
+Path             Upstream                                    Version                   License
+---------------  ------------------------------------------  ------------------------  ------------
+lib/rabbitizer   https://github.com/Decompollaborate/rabbitizer   1.7.10 (e0d8003)     MIT
+lib/ELFIO        https://github.com/serge1/ELFIO             Release_3.7-236 (ad8b641) MIT
+lib/fmt          https://github.com/fmtlib/fmt               12.1.0 (407c905)          MIT (fmt license, with optional binary-attribution exception)
+lib/tomlplusplus https://github.com/marzer/tomlplusplus      v3.4.0-7 (1f7884e)        MIT
+lib/sljit        https://github.com/zherczeg/sljit           f632608                   BSD-2-Clause
+
+Checked 2026-10-26 against each submodule's LICENSE file in the working tree.
